@@ -1,0 +1,7 @@
+﻿C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\Common7\IDE\VC\VCTargets\Microsoft.CppBuild.targets(387,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (pointcloud.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+  localize2.cpp
+c:\users\arman\source\repos\research\example.hpp(133): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+c:\users\arman\source\repos\research\example.hpp(328): warning C4018: '<': signed/unsigned mismatch
+  pointcloud.vcxproj -> C:\Users\arman\source\repos\research\Debug\localize.exe
+  C:\Program Files (x86)\Intel RealSense SDK 2.0\bin\x86\realsense2.dll
+  1 File(s) copied

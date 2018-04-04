@@ -1,0 +1,3 @@
+﻿  rs-pointcloud.cpp
+c:\program files (x86)\intel realsense sdk 2.0\samples\example.hpp(133): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+c:\program files (x86)\intel realsense sdk 2.0\samples\pointcloud\rs-pointcloud.cpp(50): error C2660: 'draw_pointcloud': function does not take 4 arguments

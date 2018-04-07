@@ -8,6 +8,10 @@
 
 const int W = 640;
 const int H = 480;
+const int TARGET_RED = 0x22;
+const int TARGET_GREEN = 0xc7;
+const int TARGET_BLUE = 0xd6;
+const int TARGET_DIST = 100;
 
 GLvoid *mask_pixels = malloc(sizeof(UINT8) * W * H * 3);
 GLuint gl_handle;
@@ -67,17 +71,19 @@ int main(int argc, char * argv[]) try
 				UINT8 G = colorFrame[3 * (x + y * W) + 1];
 				UINT8 B = colorFrame[3 * (x + y * W) + 2];
 				if (filter_rgb(R, G, B)) {
-					((UINT8 *)mask_pixels)[3 * (x + y * W)] = 0xFF;
-					((UINT8 *)mask_pixels)[3 * (x + y * W) + 1] = 0xFF;
-					((UINT8 *)mask_pixels)[3 * (x + y * W) + 2] = 0xFF;
+					((UINT8 *)mask_pixels)[3 * (x + y * W)] = TARGET_RED;
+					((UINT8 *)mask_pixels)[3 * (x + y * W) + 1] = TARGET_GREEN;
+					((UINT8 *)mask_pixels)[3 * (x + y * W) + 2] = TARGET_BLUE;
 					totalX += vertices[x + y * W].x;
 					totalY += vertices[x + y * W].y;
 					totalZ += vertices[x + y * W].z;
 					count++;
 				}
-				((UINT8 *)mask_pixels)[3 * (x + y * W)] = 0x00;
-				((UINT8 *)mask_pixels)[3 * (x + y * W) + 1] = 0x00;
-				((UINT8 *)mask_pixels)[3 * (x + y * W) + 2] = 0x00;
+				else {
+					((UINT8 *)mask_pixels)[3 * (x + y * W)] = 0x00;
+					((UINT8 *)mask_pixels)[3 * (x + y * W) + 1] = 0x00;
+					((UINT8 *)mask_pixels)[3 * (x + y * W) + 2] = 0x00;
+				}
 			}
 		}
 
@@ -89,7 +95,8 @@ int main(int argc, char * argv[]) try
 
 		color_image.render(color, { 0, 0, app.width() / 2, app.height() });
 		upload_mask();
-		show_mask({ app.width() / 2, 0, app.width() / 2, app.height() });
+		rect r = { app.width() / 2, 0, app.width() / 2, app.height() };
+		show_mask(r.adjust_ratio({ float(W), float(H) }));
 
 
 	}
@@ -107,9 +114,10 @@ catch (const std::exception & e)
 }
 
 int filter_rgb(UINT8 r, UINT8 g, UINT8 b) {
-	int targetRed = 0x17, targetGreen = 0xd3, targetBlue = 0xc3, targetDist = 100;
-
-	return std::abs(r - targetRed) + std::abs(g - targetGreen) + std::abs(b - targetBlue) < targetDist;
+	return (r - TARGET_RED) * (r - TARGET_RED)
+		+ (g - TARGET_GREEN) * (g - TARGET_GREEN)
+		+ (b - TARGET_BLUE) * (b - TARGET_BLUE)
+		< TARGET_DIST * TARGET_DIST;
 }
 
 void upload_mask()
@@ -120,7 +128,7 @@ void upload_mask()
 
 	glBindTexture(GL_TEXTURE_2D, gl_handle);
 
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, W, H, 0, GL_RGB, GL_UNSIGNED_BYTE, (GLvoid *)mask_pixels);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, W, H, 0, GL_RGB, GL_UNSIGNED_BYTE, mask_pixels);
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

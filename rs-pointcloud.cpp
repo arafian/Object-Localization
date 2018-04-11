@@ -8,21 +8,33 @@
 
 const int W = 640;
 const int H = 480;
-const int TARGET_RED = 0x22;
-const int TARGET_GREEN = 0xc7;
-const int TARGET_BLUE = 0xd6;
-const int TARGET_DIST = 100;
+const int TARGET_RED = 0xC0;
+const int TARGET_GREEN = 0x10;
+const int TARGET_BLUE = 0x10;
+const int TARGET_DIST = 90;
 
 GLvoid *mask_pixels = malloc(sizeof(UINT8) * W * H * 3);
 GLuint gl_handle;
 
+typedef struct Pixel{
+	int x, y;
+	Pixel *nextPixel;
+} Pixel;
+
+typedef struct blob{
+	Pixel *pixels;
+	int size;
+	blob *nextBlob;
+} blob;
+
 int filter_rgb(UINT8 r, UINT8 g, UINT8 b);
+blob *createBlob(int x, int y);
+Pixel *createPixels(int x, int y, int *size);
 void upload_mask();
 void show_mask(const rect& r);
 
 int main(int argc, char * argv[]) try
 {
-	const int stream_volume = W * H;
 	UINT8 *colorFrame = NULL;
 	UINT16 *depthFrame = NULL;
 
@@ -51,7 +63,7 @@ int main(int argc, char * argv[]) try
 		frames = pipe.wait_for_frames();
 
 		auto depth = frames.get_depth_frame();
-		rs2::depth_frame *mask_frame_ptr = (rs2::depth_frame *)malloc(sizeof(rs2::depth_frame));
+		//rs2::depth_frame *mask_frame_ptr = (rs2::depth_frame *)malloc(sizeof(rs2::depth_frame));
 		auto color = frames.get_color_frame();
 
 
@@ -61,10 +73,7 @@ int main(int argc, char * argv[]) try
 		points = pc.calculate(depth);
 		auto vertices = points.get_vertices();
 
-		float totalX = 0.0, totalY = 0.0, totalZ = 0.0;
-		int count = 0;
-
-
+		// Create mask by filtering RGB values
 		for (int x = 0; x < W; x++) {
 			for (int y = 0; y < H; y++) {
 				UINT8 R = colorFrame[3 * (x + y * W)];
@@ -74,10 +83,6 @@ int main(int argc, char * argv[]) try
 					((UINT8 *)mask_pixels)[3 * (x + y * W)] = TARGET_RED;
 					((UINT8 *)mask_pixels)[3 * (x + y * W) + 1] = TARGET_GREEN;
 					((UINT8 *)mask_pixels)[3 * (x + y * W) + 2] = TARGET_BLUE;
-					totalX += vertices[x + y * W].x;
-					totalY += vertices[x + y * W].y;
-					totalZ += vertices[x + y * W].z;
-					count++;
 				}
 				else {
 					((UINT8 *)mask_pixels)[3 * (x + y * W)] = 0x00;
@@ -87,11 +92,69 @@ int main(int argc, char * argv[]) try
 			}
 		}
 
-		float avgX = totalX / count;
-		float avgY = totalY / count;
-		float avgZ = totalZ / count;
+		// Separate into blobs, and determine the largest blob
+		blob *blobsHead = NULL, *blobsTail = NULL, *blobsTemp = NULL, *largestBlob = NULL;
+		for (int x = 0; x < W; x++) {
+			for (int y = 0; y < H; y++) {
+				if (((UINT8 *)mask_pixels)[3 * (x + y * W)]) {
+					blobsTemp = createBlob(x, y);
+					if (!blobsTemp) {
+						printf("ERROR! Out of Memory!");
+						return EXIT_FAILURE;
+					}
+					if (!blobsHead) {
+						blobsHead = blobsTemp;
+					}
+					else {
+						blobsTail->nextBlob = blobsTemp;
+					}
+					blobsTail = blobsTemp;
 
-		printf("Average Of (%d) Green Stuff: %f, %f, %f\n", count, avgX, avgY, avgZ);
+					if (!largestBlob || largestBlob->size < blobsTemp->size) {
+						largestBlob = blobsTemp;
+					}
+				}
+			}
+		}
+
+		float totalX = 0.0, totalY = 0.0, totalZ = 0.0;
+		int count = 0;
+		// Only fil back the largest Blob (and average it's vertices from the pointcloud)
+		Pixel *pixelsPtr = NULL;
+
+		if (largestBlob) {
+			pixelsPtr = largestBlob->pixels;
+			while (pixelsPtr) {
+				((UINT8 *)mask_pixels)[3 * (pixelsPtr->x + pixelsPtr->y * W)] = TARGET_RED;
+				((UINT8 *)mask_pixels)[3 * (pixelsPtr->x + pixelsPtr->y * W) + 1] = TARGET_GREEN;
+				((UINT8 *)mask_pixels)[3 * (pixelsPtr->x + pixelsPtr->y * W) + 2] = TARGET_BLUE;
+
+				totalX += vertices[pixelsPtr->x + pixelsPtr->y * W].x;
+				totalY += vertices[pixelsPtr->x + pixelsPtr->y * W].y;
+				totalZ += vertices[pixelsPtr->x + pixelsPtr->y * W].z;
+				pixelsPtr = pixelsPtr->nextPixel;
+			}
+		}
+
+		// Free all of the blobs and pixel lists
+		Pixel *pixelFree = NULL;
+		while (blobsHead) {
+			pixelsPtr = blobsHead->pixels;
+			while (pixelsPtr) {
+				pixelFree = pixelsPtr;
+				pixelsPtr = pixelsPtr->nextPixel;
+				free(pixelFree);
+			}
+			blobsTemp = blobsHead;
+			blobsHead = blobsHead->nextBlob;
+			free(blobsTemp);
+		}
+
+		float avgX = count == 0 ? 0 : totalX / count;
+		float avgY = count == 0 ? 0 : totalY / count;
+		float avgZ = count == 0 ? 0 : totalZ / count;
+
+		printf("Average Of (%d) Stuff: %f, %f, %f\n", count, avgX, avgY, avgZ);
 
 		color_image.render(color, { 0, 0, app.width() / 2, app.height() });
 		upload_mask();
@@ -152,4 +215,67 @@ void show_mask(const rect& r)
 	glEnd();
 	glDisable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// Returns a new pointer to a blob or NULL if error
+blob *createBlob(int x, int y) {
+	blob *returnBlob = (blob *)malloc(sizeof(blob));
+	if (!returnBlob) {
+		return NULL;
+	}
+	returnBlob->nextBlob = NULL;
+	returnBlob->size = 0;
+	returnBlob->pixels = createPixels(x, y, &(returnBlob->size));
+	return returnBlob;
+}
+
+// Returns a new pointer to a pixel or NULL is error
+Pixel *createPixels(int x, int y, int *size) {
+	UINT8 *pixels = (UINT8 *)mask_pixels;
+	Pixel *headPixel = NULL, *tailPixel = NULL;
+	pixels[3 * (x + y * W)] = 0;
+	*size++;
+
+	headPixel = (Pixel *)malloc(sizeof(Pixel));
+	if (!headPixel)
+		return NULL;
+	headPixel->x = x;
+	headPixel->y = y;
+	headPixel->nextPixel = NULL;
+	tailPixel = headPixel;
+
+	if (y + 1 < H && pixels[3 * (x + (y + 1) * W)]) {
+		tailPixel->nextPixel = createPixels(x, y + 1, size);
+		if (!(tailPixel->nextPixel))
+			return NULL;
+		while (tailPixel->nextPixel) {
+			tailPixel = tailPixel->nextPixel;
+		}
+	}
+	if (x - 1 >= 0 && pixels[3 * ((x - 1) + y * W)]) {
+		tailPixel->nextPixel = createPixels(x - 1, y, size);
+		if (!(tailPixel->nextPixel))
+			return NULL;
+		while (tailPixel->nextPixel) {
+			tailPixel = tailPixel->nextPixel;
+		}
+	}
+	if (y - 1 >= 0 && pixels[3 * (x + (y - 1) * W)]) {
+		tailPixel->nextPixel = createPixels(x, y - 1, size);
+		if (!(tailPixel->nextPixel))
+			return NULL;
+		while (tailPixel->nextPixel) {
+			tailPixel = tailPixel->nextPixel;
+		}
+	}
+	if (x + 1 < W && pixels[3 * ((x + 1) + y * W)]) {
+		tailPixel->nextPixel = createPixels(x + 1, y, size);
+		if (!(tailPixel->nextPixel))
+			return NULL;
+		while (tailPixel->nextPixel) {
+			tailPixel = tailPixel->nextPixel;
+		}
+	}
+	
+	return headPixel;
 }
